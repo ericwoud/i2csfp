@@ -98,10 +98,10 @@ static void help(void)
 		"\n"
 		" i2csfp I2CBUS rbpassword\n"
 		"\n"
-		" i2csfp I2CBUS bruteforce [-p]	[MIN] [MAX]\n"
+		" i2csfp I2CBUS bruteforce [-p] [MIN] [MAX]\n"
 		"   Runs brute force attack on sfp module\n"
 		"   -p specify password to start with (last 2 bytes zeroed)\n"
-		"   -E specify which attack: 1 (09x50) or 2 (0x56), default 1\n"
+		"   -E specify which attack: 1 (0x50) or 2 (0x56), default 1\n"
 		"   MIN is the first byte to try 0x00 - 0xff, default 0x00\n"
 		"   MAX is the last  byte to try 0x00 - 0xff, default 0xff\n"
 	);
