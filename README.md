@@ -1,4 +1,10 @@
 # i2csfp
+
+Build with:
+```
+gcc -Wall -o i2csfp i2csfp.c --static
+```
+
 ```
 Usage: i2csfp I2CBUS command ...
    I2CBUS is i2c bus device name (/dev/i2c-x)
