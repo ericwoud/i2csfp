@@ -30,6 +30,15 @@
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 
+int file = -1;
+
+/* EEPROM 0x50:
+   20 char vendor_name[16];
+   36 u8 extended_cc; fixup sets it to SFF8024_ECC_2_5GBASE_T = 0x1e
+   37 char vendor_oui[3];
+   40 char vendor_pn[16];
+*/
+
 static void help(void)
 {
 	fprintf(stderr,
@@ -45,7 +54,6 @@ static void help(void)
 		"   c22r       Clause 22 ROLLBALL at 0x56 (read-only?)\n"
 		"   c45        Clause 45\n"
 		"   rollball   Rollball protocol (Clause 45)\n"
-		"   rollball22 Rollball protocol (Clause 22) NOT FUNCTIONAL!!!\n"
 		"   rbpassword Extract Rollball eeprom password\n"
 		"   bruteforce\n"
 		"\n"
@@ -391,108 +399,6 @@ static int i2c_mii_read_rollball(int file, uint8_t devad, uint16_t reg)
 	return -ETIMEDOUT;
 }
 
-static int i2c_mii_write_rollball_c22(int file, uint8_t reg, uint16_t val)
-{
-	struct i2c_msg msgs[2];
-	uint8_t buf[4], cmdbuf[2], cmd_addr[1], cmd_res[1];
-	int res, i;
-
-	buf[0] = ROLLBALL_DATA_ADDR;
-	buf[1] = reg;
-	buf[2] = val >> 8;
-	buf[3] = val;
-
-	cmdbuf[0] = ROLLBALL_CMD_ADDR;
-	cmdbuf[1] = ROLLBALL_CMD_WRITE;
-
-	msgs[0].addr = 0x51;
-	msgs[0].flags = 0;
-	msgs[0].len = sizeof(buf);
-	msgs[0].buf = buf;
-
-	msgs[1].addr = 0x51;
-	msgs[1].flags = 0;
-	msgs[1].len = sizeof(cmdbuf);
-	msgs[1].buf = cmdbuf;
-
-	res = i2c_transfer_rollball(file, msgs, ARRAY_SIZE(msgs));
-	if (res < 0) return res;
-
-	cmd_addr[0] = ROLLBALL_CMD_ADDR;
-
-	msgs[0].addr = 0x51;
-	msgs[0].flags = 0;
-	msgs[0].len = sizeof(cmd_addr);
-	msgs[0].buf = cmd_addr;
-
-	msgs[1].addr = 0x51;
-	msgs[1].flags = I2C_M_RD;
-	msgs[1].len = sizeof(cmd_res);
-	msgs[1].buf = cmd_res;
-
-	for (i = 0; i < 10; ++i) {
-		usleep(20000);
-
-		res = i2c_transfer_rollball(file, msgs, ARRAY_SIZE(msgs));
-		if (res < 0) return res;
-
-		if (cmd_res[0] == ROLLBALL_CMD_DONE)
-			return 0;
-	}
-
-	return -ETIMEDOUT;
-}
-
-static int i2c_mii_read_rollball_c22(int file, uint8_t reg)
-{
-	struct i2c_msg msgs[2];
-	uint8_t buf[2], cmdbuf[2], cmd_addr[1], cmd_res[4];
-	int res, i;
-
-	buf[0] = ROLLBALL_DATA_ADDR;
-	buf[1] = reg;
-
-	cmdbuf[0] = ROLLBALL_CMD_ADDR;
-	cmdbuf[1] = ROLLBALL_CMD_READ;
-
-	msgs[0].addr = 0x51;
-	msgs[0].flags = 0;
-	msgs[0].len = sizeof(buf);
-	msgs[0].buf = buf;
-
-	msgs[1].addr = 0x51;
-	msgs[1].flags = 0;
-	msgs[1].len = sizeof(cmdbuf);
-	msgs[1].buf = cmdbuf;
-
-	res = i2c_transfer_rollball(file, msgs, ARRAY_SIZE(msgs));
-	if (res < 0) return res;
-
-	cmd_addr[0] = ROLLBALL_CMD_ADDR;
-
-	msgs[0].addr = 0x51;
-	msgs[0].flags = 0;
-	msgs[0].len = sizeof(cmd_addr);
-	msgs[0].buf = cmd_addr;
-
-	msgs[1].addr = 0x51;
-	msgs[1].flags = I2C_M_RD;
-	msgs[1].len = sizeof(cmd_res);
-	msgs[1].buf = cmd_res;
-
-	for (i = 0; i < 10; ++i) {
-		usleep(20000);
-
-		res = i2c_transfer_rollball(file, msgs, ARRAY_SIZE(msgs));
-		if (res < 0) return res;
-
-		if (cmd_res[0] == ROLLBALL_CMD_DONE)
-			return cmd_res[2] << 8 | cmd_res[3];;
-	}
-
-	return -ETIMEDOUT;
-}
-
 static int i2c_mii_init_rollball(int file)
 {
 	struct i2c_msg msgs[1];
@@ -567,10 +473,7 @@ static int fillstring(int file, const char *str, int start, int size)
 	int c, res, i=0, val;
 
 	for (c = start; c < (start + size); c++) {
-		if (i < strlen(str))
-			val = str[i++];
-		else
-			val = ' ';
+		if (i < strlen(str)) val = str[i++]; else val = ' ';
 		res = i2c_write_byte(file, 0x50, c, val);
 		usleep(EEPROMDELAY);
 		if (res < 0) return res;
@@ -592,37 +495,6 @@ static int fillpassword(int file, unsigned int pw)
 	if (res < 0) return res;
 
 	return 0;
-}
-
-/*
-   20 char vendor_name[16];
-   36 u8 extended_cc; fixup sets it to SFF8024_ECC_2_5GBASE_T = 0x1e
-   37 char vendor_oui[3];
-   40 char vendor_pn[16];
-*/
-static int bfread_1(int file)
-{
-	return i2c_read_byte(file, 0x50, 0x14);
-}
-static int bfwrite_1(int file, int value)
-{
-	return i2c_write_byte(file, 0x50, 0x14, value);
-}
-static int bfmod_1(int value)
-{
-	return value ^ 1;
-}
-static int bfread_2(int file)
-{
-	return i2c_mii_read_default_c22(file, 0x50, 0x14);
-}
-static int bfwrite_2(int file, int value)
-{
-	return i2c_mii_write_default_c22(file, 0x56, 8, value);
-}
-static int bfmod_2(int value)
-{
-	return value ^ 0x20;
 }
 
 static int rbpassword(int file, uint32_t * pw)
@@ -725,6 +597,31 @@ static int printeeprom(int file, int lastpage)
 	return i2c_write_byte(file, 0x51, 0x7f, saved_page);
 }
 
+static int bfread_1(int file)
+{
+	return i2c_read_byte(file, 0x50, 0x14);
+}
+static int bfwrite_1(int file, int value)
+{
+	return i2c_write_byte(file, 0x50, 0x14, value);
+}
+static int bfmod_1(int value)
+{
+	return value ^ 1;
+}
+static int bfread_2(int file)
+{
+	return i2c_mii_read_default_c22(file, 0x50, 0x14);
+}
+static int bfwrite_2(int file, int value)
+{
+	return i2c_mii_write_default_c22(file, 0x56, 8, value);
+}
+static int bfmod_2(int value)
+{
+	return value ^ 0x20;
+}
+
 static int bruteforcepart(int file, int value, bool check, int min, int max,
 			int (*bfread)(), int (*bfwrite)(), int (*bfmod)())
 {
@@ -779,8 +676,9 @@ static int runbruteforce(int file, unsigned int start, int min, int max,
 		for (b = sb; b <= max; b++) {
 			res = i2c_write_byte(file, 0x51, 0x7c, b);
 			if (res < 0) return res;
-			printf("Checking 0x%02x%02xXXXX (%d/%d)\n", a, b, 1 + (a  -min) * (1+max-min) + (b-min),
-									  (1+max-min) * (1+max-min) );
+			printf("Checking 0x%02x%02xXXXX (%d/%d)\n", a, b,
+				1 + (a  -min) * (1+max-min) + (b-min),
+				  (1+max-min) * (1+max-min) );
 			fflush(stdout);
 			res = bruteforcepart(file, bfmod(orig), false, min, max, bfread, bfwrite, bfmod);
 			if (res < 0) {
@@ -800,10 +698,25 @@ static int runbruteforce(int file, unsigned int start, int min, int max,
 	return 0;
 }
 
+static void exiterror(char * str)
+{
+	if (file >= 0) close(file);
+	fprintf(stderr, str);
+	exit(1);
+}
+
+static void exithelp(char * str)
+{
+	if (file >= 0) close(file);
+	fprintf(stderr, str);
+	help();
+	exit(1);
+}
+
 int main(int argc, char *argv[])
 {
 	char *end;
-	int file, busaddr, devad, dregister, value;
+	int busaddr, devad, dregister, value;
 	int opt, res = 0, verify = 0;
 	const char *password = NULL;
 	const char *vendorname = NULL;
@@ -826,26 +739,14 @@ int main(int argc, char *argv[])
 
 	if (password) {
 		password_hex = strtol(password, &end, 0) & 0xffffffff;
-		if (*end) {
-			fprintf(stderr, "Error: Password is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end) exithelp("Error: Password is not a number!\n");
 	}
 	if (extcc) {
 		extcc_hex = strtol(extcc, &end, 0) & 0xff;
-		if (*end) {
-			fprintf(stderr, "Error: Ext CC is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end) exithelp("Error: Ext CC is not a number!\n");
 	}
 
-	if (argc < optind + 2) {
-		fprintf(stderr, "Error: Not enough arguments!!\n");
-		res = 1;
-		goto main_help;
-	}
+	if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
 
 	file = open(argv[optind], O_RDWR);
 	if (file < 0) {
@@ -855,262 +756,126 @@ int main(int argc, char *argv[])
 	}
 
 	if (!strcmp(argv[optind+1], "byte")) {
-		if (argc < optind + 5) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
-		}
+
+		if (argc < optind + 5) exithelp("Error: Not enough arguments!!\n");
 
 		busaddr = strtol(argv[optind+3], &end, 0);
-		if (*end || busaddr < 0) {
-			fprintf(stderr, "Error: bus address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || busaddr < 0) exithelp("Error: bus address is not a number!\n");
 
 		dregister = strtol(argv[optind+4], &end, 0);
-		if (*end || dregister < 0 || dregister > 0xff) {
-			fprintf(stderr, "Error: dregister invalid!\n");
-			res = 1;
-			goto main_help;
-		}
-
-		if (argv[optind+2][0] != 'r') {
-			if (argc < optind + 6) {
-				fprintf(stderr, "Error: Not enough arguments!!\n");
-				res = 1;
-				goto main_help;
-			}
-			value = strtol(argv[optind+5], &end, 0);
-			if (*end || value < 0 || value > 0xff) {
-				fprintf(stderr, "Error: value invalid!\n");
-				res = 1;
-				goto main_help;
-			}
-		}
+		if (*end || dregister < 0 || dregister > 0xff) exithelp("Error: dregister invalid!\n");
 
 		if (argv[optind+2][0] == 'r') {
 			res = i2c_read_byte(file, busaddr, dregister);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_read_byte failed\n");
-			else
-				printf("0x%02x\n", res);
+			if (res < 0) fprintf(stderr, "Error: i2c_read_byte failed\n");
+			else printf("0x%02x\n", res);
 		} else if (argv[optind+2][0] == 'w') {
+			if (argc < optind + 6) exithelp("Error: Not enough arguments!!\n");
+
+			value = strtol(argv[optind+5], &end, 0);
+			if (*end || value < 0 || value > 0xff) exithelp("Error: value invalid!\n");
+
 			res = i2c_write_byte(file, busaddr, dregister, value);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_write_byte failed\n");
+			if (res < 0) fprintf(stderr, "Error: i2c_write_byte failed\n");
 		}
 		if (verify) {
 			res = i2c_read_byte(file, busaddr, dregister);
-			if (res < 0) {
-				fprintf(stderr, "Error: i2c_read_byte failed\n");
-			} else if (res != value) {
-				printf("Warning - data mismatch - wrote "
+			if (res < 0) fprintf(stderr, "Error: i2c_read_byte failed\n");
+			else if (res != value) printf("Warning - data mismatch - wrote "
 					"0x%02X, read back 0x%02X\n", value, res);
-			} else {
-				printf("Value 0x%02X written, readback matched\n", value);
-			}
+			else printf("Value 0x%02X written, readback matched\n", value);
 		}
+
 	} else if (!strncmp(argv[optind+1], "c22", 3)) {
-		if (argc < optind + 5) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
-		}
+
+		if (argc < optind + 5) exithelp("Error: Not enough arguments!!\n");
 
 		busaddr = strtol(argv[optind+3], &end, 0);
-		if (*end || busaddr < 0) {
-			fprintf(stderr, "Error: bus address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || busaddr < 0) exithelp("Error: bus address is not a number!\n");
 
 		dregister = strtol(argv[optind+4], &end, 0);
-		if (*end || dregister < 0 || dregister > 0x1f) {
-			fprintf(stderr, "Error: dregister invalid!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || dregister < 0 || dregister > 0x1f) exithelp("Error: dregister invalid!\n");
 
 		/* ROLLBALL 0x56 has slightly different implementation then MARVELL */
 		if (argv[optind+1][3] == 'r') dregister = dregister << 1;
 
 		if (argv[optind+2][0] == 'r') {
 			res = i2c_mii_read_default_c22(file, busaddr, dregister);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_read_default_c22 failed\n");
-			else
-				printf("0x%04x\n", res);
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_read_default_c22 failed\n");
+			else printf("0x%04x\n", res);
 		} else if (argv[optind+2][0] == 'w') {
-			if (argc < optind + 6) {
-				fprintf(stderr, "Error: Not enough arguments!!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (argc < optind + 6) exithelp("Error: Not enough arguments!!\n");
+
 			value = strtol(argv[optind+5], &end, 0);
-			if (*end || value < 0 || value > 0xffff) {
-				fprintf(stderr, "Error: value invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || value < 0 || value > 0xffff) exithelp("Error: value invalid!\n");
+
 			res = i2c_mii_write_default_c22(file, busaddr, dregister, value);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_write_default_c22 failed\n");
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_write_default_c22 failed\n");
 		}
+
 	} else if (!strcmp(argv[optind+1], "c45")) {
-		if (argc < optind + 6) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
-		}
+
+		if (argc < optind + 6) exithelp("Error: Not enough arguments!!\n");
 
 		busaddr = strtol(argv[optind+3], &end, 0);
-		if (*end || busaddr < 0) {
-			fprintf(stderr, "Error: bus address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || busaddr < 0) exithelp("Error: bus address is not a number!\n");
+
 		devad = strtol(argv[optind+4], &end, 0);
-		if (*end || devad < 0 || devad > 0x1f) {
-			fprintf(stderr, "Error: device address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || devad < 0 || devad > 0x1f) exithelp("Error: device address is not a number!\n");
 
 		dregister = strtol(argv[optind+5], &end, 0);
-		if (*end || dregister < 0 || dregister > 0xffff) {
-			fprintf(stderr, "Error: dregister invalid!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || dregister < 0 || dregister > 0xffff) exithelp("Error: dregister invalid!\n");
 
 		if (argv[optind+2][0] == 'r') {
 			res = i2c_mii_read_default_c45(file, busaddr, devad, dregister);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_read_default_c45 failed\n");
-			else
-				printf("0x%04x\n", res);
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_read_default_c45 failed\n");
+			else printf("0x%04x\n", res);
 		} else if (argv[optind+2][0] == 'w') {
-			if (argc < optind + 7) {
-				fprintf(stderr, "Error: Not enough arguments!!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (argc < optind + 7) exithelp("Error: Not enough arguments!!\n");
+
 			value = strtol(argv[optind+6], &end, 0);
-			if (*end || value < 0 || value > 0xffff) {
-				fprintf(stderr, "Error: value invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || value < 0 || value > 0xffff) exithelp("Error: value invalid!\n");
+
 			res = i2c_mii_write_default_c45(file, busaddr, devad, dregister, value);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_write_default_c45 failed\n");
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_write_default_c45 failed\n");
 		}
+
 	} else if (!strcmp(argv[optind+1], "rollball")) {
-		if (argc < optind + 5) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
-		}
+
+		if (argc < optind + 5) exithelp("Error: Not enough arguments!!\n");
 
 		devad = strtol(argv[optind+3], &end, 0);
-		if (*end || devad < 0 || devad > 0x1f) {
-			fprintf(stderr, "Error: device address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || devad < 0 || devad > 0x1f) exithelp("Error: device address is not a number!\n");
 
 		dregister = strtol(argv[optind+4], &end, 0);
-		if (*end || dregister < 0 || dregister > 0xffff) {
-			fprintf(stderr, "Error: dregister invalid!\n");
-			res = 1;
-			goto main_help;
-		}
+		if (*end || dregister < 0 || dregister > 0xffff) exithelp("Error: dregister invalid!\n");
 
 		res = i2c_mii_init_rollball(file);
-		if (res < 0)
-			fprintf(stderr, "Error: i2c_mii_init_rollball failed\n");
-
+		if (res < 0) fprintf(stderr, "Error: i2c_mii_init_rollball failed\n");
 
 		if (argv[optind+2][0] == 'r') {
 			res = i2c_mii_read_rollball(file, devad, dregister);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_read_rollball failed\n");
-			else
-				printf("0x%04x\n", res);
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_read_rollball failed\n");
+			else printf("0x%04x\n", res);
 		} else if (argv[optind+2][0] == 'w') {
-			if (argc < optind + 6) {
-				fprintf(stderr, "Error: Not enough arguments!!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (argc < optind + 6) exithelp("Error: Not enough arguments!!\n");
+
 			value = strtol(argv[optind+5], &end, 0);
-			if (*end || value < 0 || value > 0xffff) {
-				fprintf(stderr, "Error: value invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || value < 0 || value > 0xffff) exithelp("Error: value invalid!\n");
+
 			res = i2c_mii_write_rollball(file, devad, dregister, value);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_write_rollball failed\n");
-		}
-	} else if (!strcmp(argv[optind+1], "rollball22")) {
-		if (argc < optind + 4) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
+			if (res < 0) fprintf(stderr, "Error: i2c_mii_write_rollball failed\n");
 		}
 
-		dregister = strtol(argv[optind+3], &end, 0);
-		if (*end || dregister < 0 || dregister > 0xffff) {
-			fprintf(stderr, "Error: dregister invalid!\n");
-			res = 1;
-			goto main_help;
-		}
-
-		res = i2c_mii_init_rollball(file);
-		if (res < 0)
-			fprintf(stderr, "Error: i2c_mii_init_rollball failed\n");
-
-
-		if (argv[optind+2][0] == 'r') {
-			res = i2c_mii_read_rollball_c22(file, dregister);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_read_rollball_c22 failed\n");
-			else
-				printf("0x%04x\n", res);
-		} else if (argv[optind+2][0] == 'w') {
-			if (argc < optind + 5) {
-				fprintf(stderr, "Error: Not enough arguments!!\n");
-				res = 1;
-				goto main_help;
-			}
-			value = strtol(argv[optind+4], &end, 0);
-			if (*end || value < 0 || value > 0xffff) {
-				fprintf(stderr, "Error: value invalid!\n");
-				res = 1;
-				goto main_help;
-			}
-			res = i2c_mii_write_rollball_c22(file, dregister, value);
-			if (res < 0)
-				fprintf(stderr, "Error: i2c_mii_write_rollball_c22 failed\n");
-		}
 	} else if (!strcmp(argv[optind+1], "bruteforce")) {
+
 		int min = 0x00, max = 0xff;
 
 		if (argc >= optind + 4) {
 			min = strtol(argv[optind+2], &end, 0);
-			if (*end || min < 0 || min > 0xff) {
-				fprintf(stderr, "Error: MIN invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || min < 0 || min > 0xff) exithelp("Error: MIN invalid!\n");
 			max = strtol(argv[optind+3], &end, 0);
-			if (*end || max < 0 || max > 0xff) {
-				fprintf(stderr, "Error: MAX invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || max < 0 || max > 0xff) exithelp("Error: MAX invalid!\n");
 		}
 		if (!extcc) {
 			res = runbruteforce(file, password_hex, min, max, bfread_1, bfwrite_1, bfmod_1);
@@ -1119,44 +884,35 @@ int main(int argc, char *argv[])
 		} else if (extcc_hex == 2) {
 			res = runbruteforce(file, password_hex, min, max, bfread_2, bfwrite_2, bfmod_2);
 		}
-		if (res < 0) {
-			fprintf(stderr, "Error: bruteforce failed\n");
-			res = 1;
-		}
+		if (res < 0) fprintf(stderr, "Error: bruteforce failed\n");
+
 	} else if (!strcmp(argv[optind+1], "rbpassword")) {
 
 		rbpassword(file, &password_hex);
 		printf("RollBall Password used: 0x%08x\n", password_hex);
 
 	} else if (!strcmp(argv[optind+1], "i2cdump")) {
-		if (argc < optind + 3) {
-			fprintf(stderr, "Error: Not enough arguments!!\n");
-			res = 1;
-			goto main_help;
-		}
+
+		if (argc < optind + 3) exithelp("Error: Not enough arguments!!\n");
 
 		busaddr = strtol(argv[optind+2], &end, 0);
-		if (*end || busaddr < 0) {
-			fprintf(stderr, "Error: bus address is not a number!\n");
-			res = 1;
-			goto main_help;
-		}
-		i2cdump(file, busaddr);
-	} else if (!strcmp(argv[optind+1], "eepromdump")) {
-		int lastpage = 3;
+		if (*end || busaddr < 0) exithelp("Error: bus address is not a number!\n");
 
-		fprintf(stderr, "%d %d\n", argc, optind+3);
+		i2cdump(file, busaddr);
+
+	} else if (!strcmp(argv[optind+1], "eepromdump")) {
+
+		int lastpage = 3;
 
 		if (argc >= optind + 3) {
 			lastpage = strtol(argv[optind+2], &end, 0);
-			if (*end || lastpage < 0 || lastpage > 0xff) {
-				fprintf(stderr, "Error: LASTPAGE invalid!\n");
-				res = 1;
-				goto main_help;
-			}
+			if (*end || lastpage < 0 || lastpage > 0xff) exithelp("Error: LASTPAGE invalid!\n");
 		}
+
 		printeeprom(file, lastpage);
+
 	} else if (!strcmp(argv[optind+1], "eepromfix")) {
+
 		checksums(file, false);
 
 		if (!password) {
@@ -1165,36 +921,28 @@ int main(int argc, char *argv[])
 		}
 
 		res = fillpassword(file, password_hex);
-		if (res < 0) goto main_exit;
+		if (res < 0) exiterror("Error: Cannot fill in password!\n");
 
 		if (vendorname) {
-			res = fillstring(file, vendorname, 20, 16);
-			if (res < 0) goto main_exit;
+			fillstring(file, vendorname, 20, 16);
 			printf("Changed Vendor name to: %.16s\n", vendorname);
 
 		}
 		if (extcc) {
-			res = i2c_write_byte(file, 0x50, 36, extcc_hex);
+			i2c_write_byte(file, 0x50, 36, extcc_hex);
 			usleep(EEPROMDELAY);
-			if (res < 0) goto main_exit;
 			printf("Changed EXT_CC to: 0x%02x\n", extcc_hex);
 		}
 		if (vendorpn) {
-			res = fillstring(file, vendorpn, 40, 16);
-			if (res < 0) goto main_exit;
+			fillstring(file, vendorpn, 40, 16);
 			printf("Changed Vendor PN to: %.16s\n", vendorpn);
 		}
 
 		checksums(file, true);
 
-		res = fillpassword(file, 0xffffffff);
-		if (res < 0) goto main_exit;
+		fillpassword(file, 0xffffffff);
 	}
-	goto main_exit;
 
-main_help:
-	help();
-main_exit:
-	close(file);
-	exit(res);
+	if (file >= 0) close(file);
+	exit(0);
 }
