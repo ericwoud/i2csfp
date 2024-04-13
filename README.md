@@ -7,18 +7,21 @@ gcc -Wall -o i2csfp i2csfp.c --static
 
 ```
 Usage: i2csfp I2CBUS command ...
-   I2CBUS is i2c bus device name (/dev/i2c-x)
- Command one of:
-   i2cdump
-   eepromdump
-   eepromfix
-   byte
-   c22m       Clause 22 MARVELL
-   c22r       Clause 22 ROLLBALL at 0x56 (read-only?)
-   c45        Clause 45
-   rollball   Rollball protocol (Clause 45)
-   rbpassword Extract Rollball eeprom password
-   bruteforce
+   I2CBUS is one of:
+      sfp-X      for exclusive access (use restore when done)
+      /dev/i2c-X for shared acces with sfp cage
+   Command one of:
+     i2cdump
+     eepromdump
+     eepromfix
+     restore    Restores sfp cage after exclusive access
+     byte
+     c22m       Clause 22 MARVELL
+     c22r       Clause 22 ROLLBALL at 0x56 (read-only?)
+     c45        Clause 45
+     rollball   Rollball protocol (Clause 45)
+     rbpassword Extract Rollball eeprom password
+     bruteforce
 
  i2csfp I2CBUS i2cdump BUS-ADDRESS
    BUS-ADDRESS is an integer 0x00 - 0x7f
