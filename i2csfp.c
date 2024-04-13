@@ -11,13 +11,14 @@
  * gcc -Wall -o i2csfp i2csfp.c --static
 */
 
-#define _BSD_SOURCE 1 /* for glibc <= 2.19 */
-#define _DEFAULT_SOURCE 1 /* for glibc >= 2.19 */
-
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define EEPROMDELAY 50000 // microseconds
 
+#define SIZEOFPATH 256
+
+#include <dirent.h>
+#include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -31,6 +32,8 @@
 #include <sys/ioctl.h>
 
 int file = -1;
+char * i2cname;
+char i2cdevname[SIZEOFPATH+16];
 
 /* EEPROM 0x50:
    20 char vendor_name[16];
@@ -44,18 +47,21 @@ static void help(void)
 	fprintf(stderr,
 		"Usage:"
 		" i2csfp I2CBUS command ...\n"
-		"   I2CBUS is i2c bus device name (/dev/i2c-x)\n"
-		" Command one of:\n"
-		"   i2cdump\n"
-		"   eepromdump\n"
-		"   eepromfix\n"
-		"   byte\n"
-		"   c22m       Clause 22 MARVELL\n"
-		"   c22r       Clause 22 ROLLBALL at 0x56 (read-only?)\n"
-		"   c45        Clause 45\n"
-		"   rollball   Rollball protocol (Clause 45)\n"
-		"   rbpassword Extract Rollball eeprom password\n"
-		"   bruteforce\n"
+		"   I2CBUS is one of:\n"
+		"      sfp-X      for exclusive access (use restore when done)\n"
+		"      /dev/i2c-X for shared acces with sfp cage\n"
+		"   Command one of:\n"
+		"     i2cdump\n"
+		"     eepromdump\n"
+		"     eepromfix\n"
+		"     restore    Restores sfp cage after exclusive access\n"
+		"     byte\n"
+		"     c22m       Clause 22 MARVELL\n"
+		"     c22r       Clause 22 ROLLBALL at 0x56 (read-only?)\n"
+		"     c45        Clause 45\n"
+		"     rollball   Rollball protocol (Clause 45)\n"
+		"     rbpassword Extract Rollball eeprom password\n"
+		"     bruteforce\n"
 		"\n"
 		" i2csfp I2CBUS i2cdump BUS-ADDRESS\n"
 		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
@@ -658,7 +664,7 @@ static int bruteforcepart(int file, int value, bool check, int min, int max,
 	return 0;
 }
 
-static int runbruteforce(int file, unsigned int start, int min, int max, 
+static int runbruteforce(int file, unsigned int start, int min, int max,
 			int (*bfread)(), int (*bfwrite)(), int (*bfmod)())
 {
 	unsigned int a,b;
@@ -713,6 +719,63 @@ static void exithelp(char * str)
 	exit(1);
 }
 
+
+static int sysreadbe32(char * path)
+{
+	int fd, res;
+	__be32 num;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) return fd;
+	res = read(fd, &num, sizeof(num));
+	close(fd);
+	if (res < 0) return res;
+	return be32toh(num);
+}
+/*
+static int sysreadstring(char * path, char* buf, int len)
+{
+	int fd, res;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) return fd;
+	res = read(fd, buf, len);
+	close(fd);
+	return res;
+}
+*/
+static int syswritestring(char * path, char* buf, int len)
+{
+	int fd, res;
+
+	fd = open(path, O_WRONLY);
+	if (fd < 0) return fd;
+	res = write(fd, buf, len);
+	close(fd);
+	return res;
+}
+
+static int findi2cdev(int phandle)
+{
+	DIR *dirpos;
+	struct dirent* entry;
+	char path[SIZEOFPATH+64];
+
+	if ((dirpos = opendir("/sys/bus/i2c/devices")) == NULL) return -1;
+	while ((entry = readdir(dirpos)) != NULL) {
+		if (entry->d_name[0] == '.') continue;
+		snprintf(path, SIZEOFPATH+64 -1, "/sys/bus/i2c/devices/%s/of_node/phandle", entry->d_name);
+		if (sysreadbe32(path) == phandle) {
+			snprintf(i2cdevname, SIZEOFPATH+16, "/dev/%s", entry->d_name);
+			closedir(dirpos);
+			return 0;
+		}
+	}
+	closedir(dirpos);
+	return -1;
+}
+
+
 int main(int argc, char *argv[])
 {
 	char *end;
@@ -724,6 +787,7 @@ int main(int argc, char *argv[])
 	const char *extcc = NULL;
 	uint32_t password_hex = 0;
 	int extcc_hex = 0;
+	char path[SIZEOFPATH];
 
 	while ((opt = getopt(argc, argv, "p:V:N:E:vh")) != -1) {
 		switch (opt) {
@@ -737,6 +801,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
+
+
 	if (password) {
 		password_hex = strtol(password, &end, 0) & 0xffffffff;
 		if (*end) exithelp("Error: Password is not a number!\n");
@@ -748,7 +814,17 @@ int main(int argc, char *argv[])
 
 	if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
 
-	file = open(argv[optind], O_RDWR);
+
+	if (argv[optind][0] == '/') {
+		i2cname = argv[optind];
+	} else {
+		snprintf(path, SIZEOFPATH-1, "/sys/devices/platform/%s/of_node/i2c-bus", argv[optind]);
+		findi2cdev(sysreadbe32(path));
+		i2cname = i2cdevname;
+		syswritestring("/sys/bus/platform/drivers/sfp/unbind", argv[optind], strlen(argv[optind]));
+	}
+
+	file = open(i2cname, O_RDWR);
 	if (file < 0) {
 		fprintf(stderr, "Error: Could not open file "
 				"`%s': %s\n", argv[optind], strerror(errno));
@@ -941,6 +1017,10 @@ int main(int argc, char *argv[])
 		checksums(file, true);
 
 		fillpassword(file, 0xffffffff);
+	} else if (!strcmp(argv[optind+1], "restore")) {
+		if (argv[optind][0] != '/') {
+			syswritestring("/sys/bus/platform/drivers/sfp/bind", argv[optind], strlen(argv[optind]));
+		}
 	}
 
 	if (file >= 0) close(file);
