@@ -27,13 +27,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 
 int file = -1;
 char * i2cname;
-char i2cdevname[SIZEOFPATH+16];
+char i2cdevname[SIZEOFPATH];
 
 /* EEPROM 0x50:
    20 char vendor_name[16];
@@ -48,20 +49,21 @@ static void help(void)
 		"Usage:"
 		" i2csfp I2CBUS command ...\n"
 		"   I2CBUS is one of:\n"
-		"      sfp-X      for exclusive access (use restore when done)\n"
-		"      /dev/i2c-X for shared acces with sfp cage\n"
+		"	  sfp-X	  for exclusive access (use restore when done)\n"
+		"	  /dev/i2c-X for shared acces with sfp cage\n"
 		"   Command one of:\n"
-		"     i2cdump\n"
-		"     eepromdump\n"
-		"     eepromfix\n"
-		"     restore    Restores sfp cage after exclusive access\n"
-		"     byte\n"
-		"     c22m       Clause 22 MARVELL\n"
-		"     c22r       Clause 22 ROLLBALL at 0x56 (read-only?)\n"
-		"     c45        Clause 45\n"
-		"     rollball   Rollball protocol (Clause 45)\n"
-		"     rbpassword Extract Rollball eeprom password\n"
-		"     bruteforce\n"
+		"	 i2cdump\n"
+		"	 eepromdump\n"
+		"	 eepromfix\n"
+		"	 restore	Restores sfp cage after exclusive access\n"
+		"	 byte\n"
+		"	 c22m	   Clause 22 MARVELL\n"
+		"	 c22r	   Clause 22 ROLLBALL at 0x56 (read-only?)\n"
+		"	 c45		Clause 45\n"
+		"	 rollball   Rollball protocol (Clause 45)\n"
+		"        gpio       get/set gpio input/ouput\n"
+		"	 rbpassword Extract Rollball eeprom password\n"
+		"	 bruteforce\n"
 		"\n"
 		" i2csfp I2CBUS i2cdump BUS-ADDRESS\n"
 		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
@@ -101,6 +103,10 @@ static void help(void)
 		"   DEVAD is an integer 0x00 - 0x1f\n"
 		"   REGISTER is an integer 0x00 - 0xffff\n"
 		"   VALUE is an integer 0x00 - 0xffff\n"
+		"\n"
+		" i2csfp I2CBUS gpio GPIONAME [on|off]\n"
+		"   GPIONAME [on|off] one the outputs: tx-disable, rate-select0, rate-select1\n"
+		"   GPIONAME          one the inputs:  mod-def0, los, tx-fault\n"
 		"\n"
 		" i2csfp I2CBUS rbpassword\n"
 		"\n"
@@ -528,7 +534,7 @@ static int rbpassword(int file, uint32_t * pw)
 
 static void printheader()
 {
-	printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f   "
+	printf("	 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f   "
 		"0123456789abcdef\n");
 }
 
@@ -732,6 +738,23 @@ static int sysreadbe32(char * path)
 	if (res < 0) return res;
 	return be32toh(num);
 }
+
+static int sysread3be32(char * path, unsigned int * uint1, unsigned int * uint2, unsigned int * uint3)
+{
+	int fd, res;
+	__be32 num[3];
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) return fd;
+	res = read(fd, &num, sizeof(num));
+	close(fd);
+	if (res < 0) return res;
+
+	*uint1 = be32toh(num[0]);
+	*uint2 = be32toh(num[1]);
+	*uint3 = be32toh(num[2]);
+	return 0;
+}
 /*
 static int sysreadstring(char * path, char* buf, int len)
 {
@@ -745,7 +768,7 @@ static int sysreadstring(char * path, char* buf, int len)
 }
 */
 static int syswritestring(char * path, char* buf, int len)
-{
+	{
 	int fd, res;
 
 	fd = open(path, O_WRONLY);
@@ -755,24 +778,121 @@ static int syswritestring(char * path, char* buf, int len)
 	return res;
 }
 
-static int findi2cdev(int phandle)
+static int finddev(char* where, int phandle, char * found, int foundlen)
 {
 	DIR *dirpos;
 	struct dirent* entry;
 	char path[SIZEOFPATH+64];
 
-	if ((dirpos = opendir("/sys/bus/i2c/devices")) == NULL) return -1;
+	if ((dirpos = opendir(where)) == NULL) return -1;
 	while ((entry = readdir(dirpos)) != NULL) {
 		if (entry->d_name[0] == '.') continue;
-		snprintf(path, SIZEOFPATH+64 -1, "/sys/bus/i2c/devices/%s/of_node/phandle", entry->d_name);
+		snprintf(path, SIZEOFPATH+64 -1, "%s/%s/of_node/phandle", where, entry->d_name);
 		if (sysreadbe32(path) == phandle) {
-			snprintf(i2cdevname, SIZEOFPATH+16, "/dev/%s", entry->d_name);
+			snprintf(found, foundlen, "/dev/%s", entry->d_name);
 			closedir(dirpos);
 			return 0;
 		}
 	}
 	closedir(dirpos);
 	return -1;
+}
+
+static int gpio_input(int fd, int pinnr)
+{
+	struct gpio_v2_line_values values;
+	struct gpio_v2_line_request req;
+	int res;
+
+	/* get req.fd */
+	memset(&req, 0, sizeof req);
+	req.offsets[0] = pinnr;
+	req.num_lines = 1;
+	req.config.flags = GPIO_V2_LINE_FLAG_INPUT;
+	req.config.num_attrs = 0;
+	res = ioctl(fd,  GPIO_V2_GET_LINE_IOCTL, &req);
+	if (res < 0) return res;
+
+	/* readout */
+	values.mask = 1;
+	res = ioctl(req.fd, GPIO_V2_LINE_GET_VALUES_IOCTL, &values);
+	close(req.fd);
+	if (res < 0) return res;
+
+	return values.bits;
+}
+
+static int gpio_output(int fd, int pinnr, int value)
+{
+	struct gpio_v2_line_values values;
+	struct gpio_v2_line_request req;
+	int res;
+
+	memset(&req, 0, sizeof req);
+
+	if (value == -1) {
+		/* get req.fd without changing the value */
+		req.offsets[0] = pinnr;
+		req.num_lines = 1;
+		req.config.flags = 0;
+		req.config.num_attrs = 0;
+		res = ioctl(fd,  GPIO_V2_GET_LINE_IOCTL, &req);
+		if (res < 0) return res;
+	} else {
+		/* get req.fd and set as output with initial value */
+		req.offsets[0] = pinnr;
+		req.num_lines = 1;
+		req.config.flags = GPIO_V2_LINE_FLAG_OUTPUT;
+		req.config.num_attrs = 1;
+		req.config.attrs[0].attr.id = GPIO_V2_LINE_ATTR_ID_OUTPUT_VALUES;
+		req.config.attrs[0].mask = 1;
+		req.config.attrs[0].attr.values = value;
+		res = ioctl(fd,  GPIO_V2_GET_LINE_IOCTL, &req);
+		if (res < 0) return res;
+	}
+	/* readout */
+	values.mask = 1;
+	res = ioctl(req.fd, GPIO_V2_LINE_GET_VALUES_IOCTL, &values);
+	if (res >= 0) res = values.bits;
+
+	close(req.fd);
+	return res;
+}
+
+static int gpio(int file, char * sfpname, char * gpioname, int boolval)
+{
+	char path[SIZEOFPATH];
+	char pinctrl[SIZEOFPATH];
+	int res, fd;
+	unsigned int phandle, pinnr, active;
+
+	snprintf(path, SIZEOFPATH-1, "/sys/devices/platform/%s/of_node/%s-gpios", sfpname, gpioname);
+	res = sysread3be32(path, &phandle, &pinnr, &active);
+	if (res < 0) return res;
+
+	finddev("/sys/bus/gpio/devices", phandle, pinctrl, SIZEOFPATH);
+
+	printf(pinctrl);
+	printf(" TEST %x %x %x\n", phandle, pinnr, active);
+
+	fd = open(pinctrl, O_RDWR | O_CLOEXEC);
+	if (fd < 0) return fd;
+
+	if (       !strcmp(gpioname, "tx-disable") ||
+		   !strcmp(gpioname, "rate-select0") ||
+		   !strcmp(gpioname, "rate-select1")) {
+		if ((boolval != -1) && (active & 1)) boolval = boolval ^ 1;
+		res = gpio_output(fd, pinnr, boolval);
+	} else if (!strcmp(gpioname, "mod-def0") ||
+		   !strcmp(gpioname, "los") ||
+		   !strcmp(gpioname, "tx-fault")) {
+		res = gpio_input(fd, pinnr);
+	} else {
+		res = -1;
+	}
+	if ((res >= 0) && (active & 1)) res = res ^ 1;
+	close(fd);
+	return res;
 }
 
 
@@ -794,7 +914,7 @@ int main(int argc, char *argv[])
 		case 'p': password = optarg;   break;
 		case 'V': vendorname = optarg; break;
 		case 'N': vendorpn = optarg;   break;
-		case 'E': extcc = optarg;      break;
+		case 'E': extcc = optarg;	  break;
 		case 'v': verify = 1; break;
 		case 'h':
 		case '?': help(); exit(opt == '?');
@@ -819,7 +939,7 @@ int main(int argc, char *argv[])
 		i2cname = argv[optind];
 	} else {
 		snprintf(path, SIZEOFPATH-1, "/sys/devices/platform/%s/of_node/i2c-bus", argv[optind]);
-		findi2cdev(sysreadbe32(path));
+		finddev("/sys/bus/i2c/devices", sysreadbe32(path), i2cdevname, SIZEOFPATH);
 		i2cname = i2cdevname;
 		syswritestring("/sys/bus/platform/drivers/sfp/unbind", argv[optind], strlen(argv[optind]));
 	}
@@ -1017,7 +1137,27 @@ int main(int argc, char *argv[])
 		checksums(file, true);
 
 		fillpassword(file, 0xffffffff);
+
+	} else if (!strcmp(argv[optind+1], "gpio")) {
+
+		int boolval = -1;
+
+		if (argc < optind + 3) exithelp("Error: Not enough arguments!!\n");
+
+		if (argc >= optind + 4) {
+			if      (argv[optind+3][0] == '0') boolval = 0;
+			else if (argv[optind+3][1] == 'f') boolval = 0;
+			else if (argv[optind+3][0] == '1') boolval = 1;
+			else if (argv[optind+3][1] == 'n') boolval = 1;
+		}
+
+		res = gpio(file, argv[optind], argv[optind+2], boolval);
+
+		if (res < 0) fprintf(stderr, "Error: gpio() failed\n");
+		else printf("%d\n", res);
+
 	} else if (!strcmp(argv[optind+1], "restore")) {
+
 		if (argv[optind][0] != '/') {
 			syswritestring("/sys/bus/platform/drivers/sfp/bind", argv[optind], strlen(argv[optind]));
 		}
