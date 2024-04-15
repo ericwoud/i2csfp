@@ -53,18 +53,18 @@ static void help(void)
 		"	  /dev/i2c-X for shared acces with sfp cage\n"
 		"   Command one of:\n"
 		"        listsfps       Lists active sfp cages\n"
-		"	 i2cdump\n"
-		"	 eepromdump\n"
-		"	 eepromfix\n"
+		"	 i2cdump        Same as the i2cdump command\n"
+		"	 eepromdump     Same as i2cdump, including pages at 0x51\n"
+		"	 eepromfix      Edit eeprom contents\n"
 		"	 restore	Restores sfp cage after exclusive access\n"
-		"	 byte\n"
-		"	 c22m	   Clause 22 MARVELL\n"
-		"	 c22r	   Clause 22 ROLLBALL at 0x56 (read-only?)\n"
-		"	 c45		Clause 45\n"
-		"	 rollball   Rollball protocol (Clause 45)\n"
-		"        gpio       get/set gpio input/ouput\n"
-		"	 rbpassword Extract Rollball eeprom password\n"
-		"	 bruteforce\n"
+		"	 byte           Byte access on i2c address\n"
+		"	 c22m	        Clause 22 MARVELL access on i2c address\n"
+		"	 c22r	        Clause 22 ROLLBALL at 0x56 (read-only?)\n"
+		"	 c45		Clause 45 access on i2c address\n"
+		"	 rollball       Rollball protocol (Clause 45 via 0x51)\n"
+		"        gpio           Get/set gpio input/ouput\n"
+		"	 rbpassword     Extract Rollball eeprom password\n"
+		"	 bruteforce     Find password using brute force\n"
 		"\n"
 		" i2csfp I2CBUS i2cdump BUS-ADDRESS\n"
 		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
@@ -535,7 +535,7 @@ static int rbpassword(int file, uint32_t * pw)
 
 static void printheader()
 {
-	printf("	 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f   "
+	printf("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f   "
 		"0123456789abcdef\n");
 }
 
