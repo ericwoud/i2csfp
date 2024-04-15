@@ -955,7 +955,9 @@ int main(int argc, char *argv[])
 			listsfps();
 			exit(0);
 		}
-	} else if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
+	}
+
+	if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
 
 	if (argv[optind][0] == '/') {
 		i2cname = argv[optind];
