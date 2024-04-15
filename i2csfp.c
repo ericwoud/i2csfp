@@ -52,6 +52,7 @@ static void help(void)
 		"	  sfp-X	  for exclusive access (use restore when done)\n"
 		"	  /dev/i2c-X for shared acces with sfp cage\n"
 		"   Command one of:\n"
+		"        listsfps       Lists active sfp cages\n"
 		"	 i2cdump\n"
 		"	 eepromdump\n"
 		"	 eepromfix\n"
@@ -778,6 +779,23 @@ static int syswritestring(char * path, char* buf, int len)
 	return res;
 }
 
+static void listsfps()
+{
+	DIR *dirpos;
+	struct dirent* entry;
+
+	if ((dirpos = opendir("/sys/bus/platform/drivers/sfp")) == NULL) return;
+	while ((entry = readdir(dirpos)) != NULL) {
+		if (entry->d_name[0] == '.') continue;
+		if (!strcmp(entry->d_name, "bind")) continue;
+		if (!strcmp(entry->d_name, "unbind")) continue;
+		if (!strcmp(entry->d_name, "uevent")) continue;
+		printf("%s\n", entry->d_name);
+	}
+	closedir(dirpos);
+	return;
+}
+
 static int finddev(char* where, int phandle, char * found, int foundlen)
 {
 	DIR *dirpos;
@@ -932,8 +950,12 @@ int main(int argc, char *argv[])
 		if (*end) exithelp("Error: Ext CC is not a number!\n");
 	}
 
-	if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
-
+	if (argc == optind + 1) {
+		if (!strcmp(argv[optind], "listsfps")) {
+			listsfps();
+			exit(0);
+		}
+	} else if (argc < optind + 2) exithelp("Error: Not enough arguments!!\n");
 
 	if (argv[optind][0] == '/') {
 		i2cname = argv[optind];
