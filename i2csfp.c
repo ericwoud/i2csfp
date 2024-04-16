@@ -78,7 +78,8 @@ static void help(void)
 		"   -N VDPN specify vendor pn\n"
 		"   -E EXTCC specify extended cc\n"
 		"\n"
-		" i2csfp I2CBUS byte read|write [-v] BUS-ADDRESS REGISTER [VALUE]\n"
+		" i2csfp I2CBUS byte read|write [-p PASSWORD] [-v] BUS-ADDRESS REGISTER [VALUE]\n"
+		"   -p PASSWORD specify password\n"
 		"   -v verify write\n"
 		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
 		"   REGISTER is an integer 0x00 - 0x7f\n"
@@ -985,6 +986,11 @@ int main(int argc, char *argv[])
 		dregister = strtol(argv[optind+4], &end, 0);
 		if (*end || dregister < 0 || dregister > 0xff) exithelp("Error: dregister invalid!\n");
 
+		if (password) {
+			res = fillpassword(file, password_hex);
+			if (res < 0) exiterror("Error: Cannot fill in password!\n");
+		}
+
 		if (argv[optind+2][0] == 'r') {
 			res = i2c_read_byte(file, busaddr, dregister);
 			if (res < 0) fprintf(stderr, "Error: i2c_read_byte failed\n");
@@ -1004,6 +1010,11 @@ int main(int argc, char *argv[])
 			else if (res != value) printf("Warning - data mismatch - wrote "
 					"0x%02X, read back 0x%02X\n", value, res);
 			else printf("Value 0x%02X written, readback matched\n", value);
+		}
+
+		if (password) {
+			res = fillpassword(file, 0xffffffff);
+			if (res < 0) exiterror("Error: Cannot fill in password!\n");
 		}
 
 	} else if (!strncmp(argv[optind+1], "c22", 3)) {
