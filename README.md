@@ -5,7 +5,7 @@ Build with:
 gcc -Wall -o i2csfp i2csfp.c --static
 ```
 
-```
+```p
 Usage: i2csfp I2CBUS command ...
    I2CBUS is one of:
 	  sfp-X	  for exclusive access (use restore when done)
@@ -37,7 +37,8 @@ Usage: i2csfp I2CBUS command ...
    -N VDPN specify vendor pn
    -E EXTCC specify extended cc
 
- i2csfp I2CBUS byte read|write [-v] BUS-ADDRESS REGISTER [VALUE]
+ i2csfp I2CBUS byte read|write [-p PASSWORD] [-v] BUS-ADDRESS REGISTER [VALUE]
+   -p PASSWORD specify password
    -v verify write
    BUS-ADDRESS is an integer 0x00 - 0x7f
    REGISTER is an integer 0x00 - 0x7f
