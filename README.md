@@ -8,20 +8,22 @@ gcc -Wall -o i2csfp i2csfp.c --static
 ```
 Usage: i2csfp I2CBUS command ...
    I2CBUS is one of:
-      sfp-X      for exclusive access (use restore when done)
-      /dev/i2c-X for shared acces with sfp cage
+	  sfp-X	  for exclusive access (use restore when done)
+	  /dev/i2c-X for shared acces with sfp cage
    Command one of:
-     i2cdump
-     eepromdump
-     eepromfix
-     restore    Restores sfp cage after exclusive access
-     byte
-     c22m       Clause 22 MARVELL
-     c22r       Clause 22 ROLLBALL at 0x56 (read-only?)
-     c45        Clause 45
-     rollball   Rollball protocol (Clause 45)
-     rbpassword Extract Rollball eeprom password
-     bruteforce
+        listsfps       Lists active sfp cages
+	 i2cdump        Same as the i2cdump command
+	 eepromdump     Same as i2cdump, including pages at 0x51
+	 eepromfix      Edit eeprom contents
+	 restore	Restores sfp cage after exclusive access
+	 byte           Byte access on i2c address
+	 c22m	        Clause 22 MARVELL access on i2c address
+	 c22r	        Clause 22 ROLLBALL at 0x56 (read-only?)
+	 c45		Clause 45 access on i2c address
+	 rollball       Rollball protocol (Clause 45 via 0x51)
+        gpio           Get/set gpio input/ouput
+	 rbpassword     Extract Rollball eeprom password
+	 bruteforce     Find password using brute force
 
  i2csfp I2CBUS i2cdump BUS-ADDRESS
    BUS-ADDRESS is an integer 0x00 - 0x7f
@@ -61,6 +63,10 @@ Usage: i2csfp I2CBUS command ...
    DEVAD is an integer 0x00 - 0x1f
    REGISTER is an integer 0x00 - 0xffff
    VALUE is an integer 0x00 - 0xffff
+
+ i2csfp I2CBUS gpio GPIONAME [on|off]
+   GPIONAME [on|off] one the outputs: tx-disable, rate-select0, rate-select1
+   GPIONAME          one the inputs:  mod-def0, los, tx-fault
 
  i2csfp I2CBUS rbpassword
 
