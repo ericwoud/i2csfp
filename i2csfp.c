@@ -625,7 +625,7 @@ static int bfmod_1(int value)
 }
 static int bfread_2(int file)
 {
-	return i2c_mii_read_default_c22(file, 0x50, 0x14);
+	return i2c_mii_read_default_c22(file, 0x56, 8);
 }
 static int bfwrite_2(int file, int value)
 {
