@@ -715,14 +715,14 @@ static int runbruteforce(int file, unsigned int start, int min, int max,
 static void exiterror(char * str)
 {
 	if (file >= 0) close(file);
-	fprintf(stderr, str);
+	fprintf(stderr, "%s", str);
 	exit(1);
 }
 
 static void exithelp(char * str)
 {
 	if (file >= 0) close(file);
-	fprintf(stderr, str);
+	fprintf(stderr, "%s", str);
 	help();
 	exit(1);
 }
@@ -891,8 +891,7 @@ static int gpio(int file, char * sfpname, char * gpioname, int boolval)
 
 	finddev("/sys/bus/gpio/devices", phandle, pinctrl, SIZEOFPATH);
 
-	printf(pinctrl);
-	printf(" TEST %x %x %x\n", phandle, pinnr, active);
+	printf("%s TEST %x %x %x\n", pinctrl, phandle, pinnr, active);
 
 	fd = open(pinctrl, O_RDWR | O_CLOEXEC);
 	if (fd < 0) return fd;
@@ -918,7 +917,7 @@ static int gpio(int file, char * sfpname, char * gpioname, int boolval)
 int main(int argc, char *argv[])
 {
 	char *end;
-	int busaddr, devad, dregister, value;
+	int busaddr, devad, dregister, value = 0;
 	int opt, res = 0, verify = 0;
 	const char *password = NULL;
 	const char *vendorname = NULL;
