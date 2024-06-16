@@ -791,6 +791,7 @@ static void listsfps()
 		if (!strcmp(entry->d_name, "bind")) continue;
 		if (!strcmp(entry->d_name, "unbind")) continue;
 		if (!strcmp(entry->d_name, "uevent")) continue;
+		if (!strcmp(entry->d_name, "module")) continue;
 		printf("%s\n", entry->d_name);
 	}
 	closedir(dirpos);
