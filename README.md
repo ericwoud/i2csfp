@@ -1,10 +1,61 @@
 # i2csfp
 
-Build with:
+USE WITH CAUTION!!!
+
+## Features
+
+1. i2cdump
+2. eeprom dump, showing different pages
+3. edit eeprom data
+4. read/write using protocols: byte, c22m, c22r, c45, rollball
+5. Extract rollball password
+6. Brute force attack eeprom
+
+It can edit eeprom data of the OEM modules so it can match another string, so you do not need to add another quirk if the same hardware already has a quirk but uses different id string.
+
+I've only briefly tested it:
+
+[ericwoud/i2csfp (github.com)](https://github.com/ericwoud/i2csfp)
+
+It is still in beta-stage.
+
+I have added pre-build static executables to the release page here.
+[https://github.com/ericwoud/i2csfp/releases/tag/0.1](https://github.com/ericwoud/i2csfp/releases/tag/0.1)
+
+One could do:
+```
+i2csfp sfp-X eepromfix -V Turris -N RTSFP-2.5G -E 0x1e
+```
+For example, to use the OEM module, using the newly added patch for the Turris module, although I still have to try the result myself ;)
+
+Because of this code in linux kernel,
+```
+bool sfp_may_have_phy(struct sfp_bus *bus, const struct sfp_eeprom_id *id)
+{
+	if (id->base.e1000_base_t)
+		return true;
+
+	if (id->base.phys_id != SFF8024_ID_DWDM_SFP) {
+		switch (id->base.extended_cc) {
+		case SFF8024_ECC_10GBASE_T_SFI:
+		case SFF8024_ECC_10GBASE_T_SR:
+		case SFF8024_ECC_5GBASE_T:
+		case SFF8024_ECC_2_5GBASE_T:
+			return true;
+		}
+	}
+
+	return false;
+}
+```
+We need to set extended_cc to 0x1e for 2.5G module phy to be recognised.
+
+## Build with
 ```
 gcc -Wall -o i2csfp i2csfp.c --static
 ```
 
+## Usage
 ```p
 Usage: i2csfp I2CBUS command ...
    I2CBUS is one of:
