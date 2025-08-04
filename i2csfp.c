@@ -637,7 +637,7 @@ static int bfmod_2(int value)
 }
 
 static int bruteforcepart(int file, int value, bool check, int min, int max,
-			int (*bfread)(), int (*bfwrite)(), int (*bfmod)())
+			int (*bfread)(int), int (*bfwrite)(int,int), int (*bfmod)(int))
 {
 	unsigned int c,d;
 	int res;
@@ -673,7 +673,7 @@ static int bruteforcepart(int file, int value, bool check, int min, int max,
 }
 
 static int runbruteforce(int file, unsigned int start, int min, int max,
-			int (*bfread)(), int (*bfwrite)(), int (*bfmod)())
+			int (*bfread)(int), int (*bfwrite)(int,int), int (*bfmod)(int))
 {
 	unsigned int a,b;
 	int res, orig;
