@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
@@ -62,7 +63,7 @@ static void help(void)
 		"	 c22r	        Clause 22 ROLLBALL at 0x56 (read-only?)\n"
 		"	 c45		Clause 45 access on i2c address\n"
 		"	 rollball       Rollball protocol (Clause 45 via 0x51)\n"
-		"        gpio           Get/set gpio input/ouput\n"
+		"	 gpio           Get/set gpio input/ouput\n"
 		"	 rbpassword     Extract Rollball eeprom password\n"
 		"	 bruteforce     Find password using brute force\n"
 		"\n"
@@ -72,8 +73,9 @@ static void help(void)
 		" i2csfp I2CBUS eepromdump [LASTPAGE]\n"
 		"   LASTPAGE is the last page number to show, default 3\n"
 		"\n"
-		" i2csfp I2CBUS eepromfix [-p PASSWORD] [-e EXTCC] [-v VDNAME] [-n VDPN]\n"
-		"   -p PASSWORD specify password, without this option uses rbpassword\n"
+		" i2csfp I2CBUS eepromfix [rbpassword] [-p PASSWORD] [-e EXTCC] [-v VDNAME] [-n VDPN]\n"
+		"   rbpassword use a rollball password\n"
+		"   -p PASSWORD specify password, without this option uses rbpassword command\n"
 		"   -V VDNAME specify vendor name\n"
 		"   -N VDPN specify vendor pn\n"
 		"   -E EXTCC specify extended cc\n"
@@ -928,7 +930,7 @@ int main(int argc, char *argv[])
 	int extcc_hex = 0;
 	char path[SIZEOFPATH];
 
-	while ((opt = getopt(argc, argv, "p:V:N:E:vh")) != -1) {
+	while ((opt = getopt_long(argc, argv, "p:V:N:E:vh", NULL, 0)) != -1) {
 		switch (opt) {
 		case 'p': password = optarg;   break;
 		case 'V': vendorname = optarg; break;
@@ -1144,15 +1146,19 @@ int main(int argc, char *argv[])
 
 	} else if (!strcmp(argv[optind+1], "eepromfix")) {
 
+		bool resetpw = false;
+
 		checksums(file, false);
 
-		if (!password) {
-			rbpassword(file, &password_hex);
-			printf("RollBall Password used: 0x%08x\n", password_hex);
+		if ((argc >= optind + 3) && (!strcmp(argv[optind+2], "rbpassword"))) {
+			if (!password) {
+				rbpassword(file, &password_hex);
+				printf("RollBall Password used: 0x%08x\n", password_hex);
+			}
+			res = fillpassword(file, password_hex);
+			if (res < 0) exiterror("Error: Cannot fill in password!\n");
+			resetpw = true;
 		}
-
-		res = fillpassword(file, password_hex);
-		if (res < 0) exiterror("Error: Cannot fill in password!\n");
 
 		if (vendorname) {
 			fillstring(file, vendorname, 20, 16);
@@ -1171,7 +1177,8 @@ int main(int argc, char *argv[])
 
 		checksums(file, true);
 
-		fillpassword(file, 0xffffffff);
+		if (resetpw)
+			fillpassword(file, 0xffffffff);
 
 	} else if (!strcmp(argv[optind+1], "gpio")) {
 

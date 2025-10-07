@@ -24,7 +24,7 @@ I have added pre-build static executables to the release page here.
 
 One could do:
 ```
-i2csfp sfp-X eepromfix -V Turris -N RTSFP-2.5G -E 0x1e
+i2csfp sfp-X eepromfix rbpassword -V Turris -N RTSFP-2.5G -E 0x1e
 ```
 For example, to use the OEM module, using the newly added patch for the Turris module, although I still have to try the result myself ;)
 
@@ -72,7 +72,7 @@ Usage: i2csfp I2CBUS command ...
 	 c22r	        Clause 22 ROLLBALL at 0x56 (read-only?)
 	 c45		Clause 45 access on i2c address
 	 rollball       Rollball protocol (Clause 45 via 0x51)
-        gpio           Get/set gpio input/ouput
+	 gpio           Get/set gpio input/ouput
 	 rbpassword     Extract Rollball eeprom password
 	 bruteforce     Find password using brute force
 
@@ -82,8 +82,9 @@ Usage: i2csfp I2CBUS command ...
  i2csfp I2CBUS eepromdump [LASTPAGE]
    LASTPAGE is the last page number to show, default 3
 
- i2csfp I2CBUS eepromfix [-p PASSWORD] [-e EXTCC] [-v VDNAME] [-n VDPN]
-   -p PASSWORD specify password, without this option uses rbpassword
+ i2csfp I2CBUS eepromfix [rbpassword] [-p PASSWORD] [-e EXTCC] [-v VDNAME] [-n VDPN]
+   rbpassword use a rollball password
+   -p PASSWORD specify password, without this option uses rbpassword command
    -V VDNAME specify vendor name
    -N VDPN specify vendor pn
    -E EXTCC specify extended cc
