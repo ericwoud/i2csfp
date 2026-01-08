@@ -811,7 +811,7 @@ static int finddev(char* where, int phandle, char * found, int foundlen)
 		if (entry->d_name[0] == '.') continue;
 		snprintf(path, SIZEOFPATH+64 -1, "%s/%s/of_node/phandle", where, entry->d_name);
 		if (sysreadbe32(path) == phandle) {
-			snprintf(found, foundlen, "/dev/%s", entry->d_name);
+			snprintf(found, foundlen, "/dev/%.250s", entry->d_name);
 			closedir(dirpos);
 			return 0;
 		}
