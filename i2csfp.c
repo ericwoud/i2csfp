@@ -123,7 +123,89 @@ static void help(void)
 	);
 }
 
-static int i2c_transfer(int file, struct i2c_msg * msgs, int count)
+static int i2c_transfer_smbus_real(int file, uint8_t rw, uint16_t addr, uint8_t reg, uint16_t len, uint8_t * buf)
+{
+	struct i2c_smbus_ioctl_data args;
+	union i2c_smbus_data data;
+	int res;
+
+	if (addr > 0x7f) {
+		fprintf(stderr, "Error: unsupported i2c address: 0x%x\n", addr);
+		return -EINVAL;
+	}
+
+	if (len < 1 || len > I2C_SMBUS_BLOCK_MAX) {
+		fprintf(stderr, "Error: invalid smbus block length: %d\n", len);
+		return -EINVAL;
+	}
+
+	args.read_write = rw;
+	args.command = reg;
+	args.size = I2C_SMBUS_I2C_BLOCK_DATA;
+	args.data = &data;
+
+	data.block[0] = len;
+
+	if (rw == I2C_SMBUS_WRITE) {
+		memcpy(&data.block[1], buf, len);
+	}
+
+	res = ioctl(file, I2C_SLAVE, addr);
+	if (res < 0) {
+		fprintf(stderr, "Error: setting i2c address failed: %s\n", strerror(errno));
+		return -errno;
+	}
+
+	res = ioctl(file, I2C_SMBUS, &args);
+	if (res < 0) {
+		fprintf(stderr, "Error: smbus transfer failed: %s\n", strerror(errno));
+		return -errno;
+	}
+
+	if (rw == I2C_SMBUS_READ) {
+		memcpy(buf, &data.block[1], len);
+	}
+
+	return 0;
+}
+
+static int i2c_transfer_smbus(int file, struct i2c_msg * msgs, int count)
+{
+	uint16_t addr, len;
+	uint8_t reg;
+	uint8_t * buf;
+	int res;
+
+	reg = 0;
+
+	for (int i = 0; i < count; i++) {
+		addr = msgs[i].addr;
+
+		if (msgs[i].flags & (~I2C_M_RD)) {
+			fprintf(stderr, "Error: unsupported i2c flags: %08x\n", msgs[i].flags);
+			return -EINVAL;
+		}
+
+		if (msgs[i].flags & I2C_M_RD) {
+			len = msgs[i].len;
+			buf = msgs[i].buf;
+			res = i2c_transfer_smbus_real(file, I2C_SMBUS_READ, addr, reg, len, buf);
+			if (res < 0) return res;
+		} else {
+			reg = msgs[i].buf[0];
+			len = msgs[i].len - 1;
+			if (len > 0) {
+				buf = &msgs[i].buf[1];
+				res = i2c_transfer_smbus_real(file, I2C_SMBUS_WRITE, addr, reg, len, buf);
+				if (res < 0) return res;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int i2c_transfer_real(int file, struct i2c_msg * msgs, int count)
 {
 	struct i2c_rdwr_ioctl_data msgset[1];
 	int res;
@@ -133,11 +215,29 @@ static int i2c_transfer(int file, struct i2c_msg * msgs, int count)
 
 	res = ioctl(file, I2C_RDWR, &msgset);
 	if (res < 0) {
-		fprintf(stderr, "Error: i2c_transfer() failed: %s\n", strerror(errno));
+		fprintf(stderr, "Error: i2c transfer failed: %s\n", strerror(errno));
 		return -errno;
 	}
 
 	return res;
+}
+
+static int i2c_transfer(int file, struct i2c_msg * msg, int count)
+{
+	unsigned long funcs;
+	int res;
+
+	res = ioctl(file, I2C_FUNCS, &funcs);
+	if (res < 0) {
+		fprintf(stderr, "Error: reading i2c funcs failed: %s\n", strerror(errno));
+		return -errno;
+	}
+
+	if (!(funcs & I2C_FUNC_I2C) && (funcs & I2C_FUNC_SMBUS_I2C_BLOCK)) {
+		return i2c_transfer_smbus(file, msg, count);
+	}
+
+	return i2c_transfer_real(file, msg, count);
 }
 
 static int i2c_write_byte(int file, uint8_t bus_addr, uint8_t reg, uint8_t val)
