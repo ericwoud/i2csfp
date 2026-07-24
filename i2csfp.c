@@ -62,6 +62,7 @@ static void help(void)
 		"	 c22m	        Clause 22 MARVELL access on i2c address\n"
 		"	 c22r	        Clause 22 ROLLBALL at 0x56 (read-only?)\n"
 		"	 c45		Clause 45 access on i2c address\n"
+		"	 c45s		Clause 45 access on i2c address (split transfer)\n"
 		"	 rollball       Rollball protocol (Clause 45 via 0x51)\n"
 		"	 gpio           Get/set gpio input/ouput\n"
 		"	 rbpassword     Extract Rollball eeprom password\n"
@@ -98,6 +99,12 @@ static void help(void)
 		"   VALUE is an integer 0x00 - 0xffff\n"
 		"\n"
 		" i2csfp I2CBUS c45 read|write BUS-ADDRESS DEVAD REGISTER [VALUE]\n"
+		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
+		"   DEVAD is an integer 0x00 - 0x1f\n"
+		"   REGISTER is an integer 0x00 - 0xffff\n"
+		"   VALUE is an integer 0x00 - 0xffff\n"
+		"\n"
+		" i2csfp I2CBUS c45s read|write BUS-ADDRESS DEVAD REGISTER [VALUE]\n"
 		"   BUS-ADDRESS is an integer 0x00 - 0x7f\n"
 		"   DEVAD is an integer 0x00 - 0x1f\n"
 		"   REGISTER is an integer 0x00 - 0xffff\n"
@@ -263,7 +270,7 @@ static int i2c_mii_read_default_c45(int file, uint8_t phy_id, uint8_t devad, uin
 
 	bus_addr = (phy_id < 0x40) ? phy_id + 0x40 : phy_id;
 
-	addr[0] = devad;
+	addr[0] = 0x20 | devad;
 	addr[1] = reg >> 8;
 	addr[2] = reg;
 
@@ -282,6 +289,40 @@ static int i2c_mii_read_default_c45(int file, uint8_t phy_id, uint8_t devad, uin
 
 	return data[0] << 8 | data[1];
 }
+
+static int i2c_mii_read_default_c45_split(int file, uint8_t phy_id, uint8_t devad, uint16_t reg)
+{
+	struct i2c_msg msgs[1];
+	uint8_t addr[3], data[2];
+	int res, bus_addr;
+
+	bus_addr = (phy_id < 0x40) ? phy_id + 0x40 : phy_id;
+
+	addr[0] = 0x20 | devad;
+	addr[1] = reg >> 8;
+	addr[2] = reg;
+
+	msgs[0].addr = bus_addr;
+	msgs[0].flags = 0;
+	msgs[0].len = sizeof(addr);
+	msgs[0].buf = addr;
+
+	res = i2c_transfer(file, msgs, ARRAY_SIZE(msgs));
+	if (res < 0) return res;
+
+	usleep(1000);
+
+	msgs[0].addr = bus_addr;
+	msgs[0].flags = I2C_M_RD;
+	msgs[0].len = sizeof(data);
+	msgs[0].buf = data;
+
+	res = i2c_transfer(file, msgs, ARRAY_SIZE(msgs));
+	if (res < 0) return res;
+
+	return data[0] << 8 | data[1];
+}
+
 
 #define ROLLBALL_PWD_ADDR		0x7b
 #define ROLLBALL_CMD_ADDR		0x80
@@ -1046,7 +1087,7 @@ int main(int argc, char *argv[])
 			if (res < 0) fprintf(stderr, "Error: i2c_mii_write_default_c22 failed\n");
 		}
 
-	} else if (!strcmp(argv[optind+1], "c45")) {
+	} else if (!strncmp(argv[optind+1], "c45", 3)) {
 
 		if (argc < optind + 6) exithelp("Error: Not enough arguments!!\n");
 
@@ -1060,7 +1101,11 @@ int main(int argc, char *argv[])
 		if (*end || dregister < 0 || dregister > 0xffff) exithelp("Error: dregister invalid!\n");
 
 		if (argv[optind+2][0] == 'r') {
-			res = i2c_mii_read_default_c45(file, busaddr, devad, dregister);
+			if (argv[optind+1][3] == 's') {
+				res = i2c_mii_read_default_c45_split(file, busaddr, devad, dregister);
+			} else {
+				res = i2c_mii_read_default_c45(file, busaddr, devad, dregister);
+			}
 			if (res < 0) fprintf(stderr, "Error: i2c_mii_read_default_c45 failed\n");
 			else printf("0x%04x\n", res);
 		} else if (argv[optind+2][0] == 'w') {
